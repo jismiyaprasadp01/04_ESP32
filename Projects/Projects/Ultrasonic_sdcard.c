@@ -1,66 +1,18 @@
 #include <SPI.h>
+#include <SD.h>
+
 #define CS 5
 #define TRIG 12
 #define ECHO 14
 
 bool objectPresent = false;
-
 unsigned long lastChangeTime = 0;
-const int debounceDelay = 2000; // strong debounce
+const int debounceDelay = 2000;
 
 int entryCount = 0;
-unsigned long address = 0;
-
-// ignore first few seconds after startup
 bool systemReady = false;
 
-// ---------- FLASH ----------
-
-void writeEnable() {
-  digitalWrite(CS, LOW);
-  SPI.transfer(0x06);
-  digitalWrite(CS, HIGH);
-}
-
-void writeByte(uint32_t addr, byte data) {
-  writeEnable();
-
-  digitalWrite(CS, LOW);
-  SPI.transfer(0x02);
-  SPI.transfer((addr >> 16) & 0xFF);
-  SPI.transfer((addr >> 8) & 0xFF);
-  SPI.transfer(addr & 0xFF);
-  SPI.transfer(data);
-  digitalWrite(CS, HIGH);
-
-  delay(3);
-}
-
-byte readByte(uint32_t addr) {
-  digitalWrite(CS, LOW);
-  SPI.transfer(0x03);
-  SPI.transfer((addr >> 16) & 0xFF);
-  SPI.transfer((addr >> 8) & 0xFF);
-  SPI.transfer(addr & 0xFF);
-  byte data = SPI.transfer(0x00);
-  digitalWrite(CS, HIGH);
-  return data;
-}
-
-void writeLog(String msg) {
-  for (int i = 0; i < msg.length(); i++) {
-    writeByte(address++, msg[i]);
-  }
-  writeByte(address++, '\n');
-}
-
-void readLogs() {
-  Serial.println("\n==== FLASH LOG ====");
-  for (uint32_t i = 0; i < address; i++) {
-    Serial.print((char)readByte(i));
-  }
-  Serial.println("\n==== END ====");
-}
+File logFile;
 
 // ---------- SENSOR ----------
 
@@ -76,7 +28,6 @@ float getDistance() {
   return duration * 0.034 / 2;
 }
 
-// stable reading
 float getStableDistance() {
   float sum = 0;
   for (int i = 0; i < 5; i++) {
@@ -90,38 +41,61 @@ float getStableDistance() {
 
 String getTime() {
   unsigned long sec = millis() / 1000;
-
   int min = sec / 60;
   int s = sec % 60;
 
   char buf[10];
   sprintf(buf, "%02d:%02d", min, s);
-
   return String(buf);
+}
+
+// ---------- LOG FUNCTIONS ----------
+
+void writeLog(String msg) {
+  logFile = SD.open("/log.txt", FILE_APPEND);
+  if (logFile) {
+    logFile.println(msg);
+    logFile.close();
+  } else {
+    Serial.println("Error opening file!");
+  }
+}
+
+void readLogs() {
+  logFile = SD.open("/log.txt");
+  if (logFile) {
+    Serial.println("\n==== SD LOG ====");
+    while (logFile.available()) {
+      Serial.write(logFile.read());
+    }
+    logFile.close();
+    Serial.println("\n==== END ====");
+  } else {
+    Serial.println("Error reading file!");
+  }
 }
 
 // ---------- SETUP ----------
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
 
   pinMode(TRIG, OUTPUT);
   pinMode(ECHO, INPUT);
 
-  pinMode(CS, OUTPUT);
-  digitalWrite(CS, HIGH);
+  if (!SD.begin(CS)) {
+    Serial.println("SD Card Failed!");
+    while (1);
+  }
 
-  SPI.begin(18, 19, 23, CS);
-
-  Serial.println("Starting...");
+  Serial.println("SD Card Ready");
 }
 
 // ---------- LOOP ----------
 
 void loop() {
-
   unsigned long now = millis();
-
 
   if (!systemReady) {
     if (now > 3000) {
@@ -145,7 +119,6 @@ void loop() {
     writeLog(msg);
 
     if (entryCount >= 10) {
-      Serial.println("\n>>> 10 Objects Detected! Reading Flash...\n");
       readLogs();
       entryCount = 0;
     }
