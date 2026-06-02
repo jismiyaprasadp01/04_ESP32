@@ -1,0 +1,6 @@
+GSM Log Started
+Outgoing call 00:08
+Caller detected 00:36
+Message received 00:51
+Message received 00:55
+Message received 00:59
